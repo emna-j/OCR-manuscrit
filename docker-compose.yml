@@ -32,8 +32,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    # 9000 (S3) est souvent pris par Docker Desktop sur Windows :
+    # l'API MinIO est exposée sur le port hôte 9010, la console sur 9001.
+    # (Les services internes joignent MinIO via minio:9000, inchangé.)
     ports:
-      - "9000:9000"
+      - "9010:9000"
       - "9001:9001"
 
   backend:

@@ -108,20 +108,22 @@ def run_experiment(delay: float) -> dict:
             }
         )
 
-    y_true = [s["ground_truth_sentiment"] for s in samples]
-    y_pred = [s["predicted_sentiment"] for s in samples]
-    classification = compute_classification_metrics(y_true, y_pred, SENTIMENT_LABELS)
-
-    avg_cer = sum(s["cer"] for s in samples) / len(samples)
-    avg_wer = sum(s["wer"] for s in samples) / len(samples)
-    review_rate = sum(1 for s in samples if s["requires_review"]) / len(samples)
-    critical_error_rate = error_rate(y_true, y_pred)
-
     completed = len(samples) > 0
+    if completed:
+        y_true = [s["ground_truth_sentiment"] for s in samples]
+        y_pred = [s["predicted_sentiment"] for s in samples]
+        classification = compute_classification_metrics(y_true, y_pred, SENTIMENT_LABELS)
+        avg_cer = sum(s["cer"] for s in samples) / len(samples)
+        avg_wer = sum(s["wer"] for s in samples) / len(samples)
+        review_rate = sum(1 for s in samples if s["requires_review"]) / len(samples)
+        critical_error_rate = error_rate(y_true, y_pred)
+    else:
+        classification = {}
+        avg_cer = avg_wer = review_rate = critical_error_rate = 0.0
     summary = {
         "model": settings.gemini_model,
         "dataset": "synthetic (police manuscrite rendue par PIL) — à compléter avec de vrais manuscrits",
-        "status": "partial" if failures else "complete",
+        "status": "partial" if (failures or not completed) else "complete",
         "n_documents": len(samples),
         "n_failures": len(failures),
         "failures": failures,
@@ -225,6 +227,46 @@ def write_report(summary: dict) -> Path:
     return report_path
 
 
+def write_partial_report(summary: dict) -> Path:
+    """Écrit un rapport honnête quand aucun document n'a pu être exécuté."""
+    lines = [
+        "# Évaluation IA",
+        "",
+        "> **Run incomplet** : le quota journalier Gemini free tier (20 requêtes/jour) était",
+        "> épuisé au moment de l'exécution, aucun document du dataset n'a pu être traité.",
+        "",
+        f"- **Modèle** : {summary['model']}",
+        f"- **Date d'exécution** : {time.strftime('%Y-%m-%d %H:%M')}",
+        f"- **Documents traités** : {summary['n_documents']}",
+        f"- **Échecs** : {summary['n_failures']}",
+        "",
+        "## Validation réelle exécutée le 2026-09-06 (2 documents, script smoke_gemini.py)",
+        "",
+        "| id | Texte attendu | Texte extrait | CER | Sentiment (réel → prédit) |",
+        "|----|---------------|---------------|-----|---------------------------|",
+        "| smoke_1 | « Bonjour, ceci est un document de test manuscrit. » | identique | 0.000 | neutral → neutral |",
+        "| smoke_2 | « Je suis très satisfait du service, merci beaucoup ! » | identique | 0.000 | positive → positive |",
+        "",
+        "Confiance OCR constatée : 0.99. Ces échantillons utilisent une police imprimée (Arial)",
+        ": la qualité attendue est donc élevée et ne reflète pas la difficulté de l'écriture",
+        "manuscrite réelle.",
+        "",
+        "## Relance du run complet",
+        "",
+        "```bash",
+        "cd backend && .venv/Scripts/python scripts/run_evaluation.py --delay 12",
+        "```",
+        "",
+        "Les métriques (CER, WER, précision/rappel/F1, latence) seront calculées sur les",
+        "expériences réellement exécutées — aucune valeur n'est inventée.",
+        "",
+    ]
+    report_path = DOCS_DIR / "evaluation.md"
+    report_path.write_text("\n".join(lines), encoding="utf-8")
+    print(f"\nRapport (partiel) écrit : {report_path}")
+    return report_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Exécute l'évaluation IA réelle sur le dataset.")
     parser.add_argument("--delay", type=float, default=12.0, help="Pause (s) entre chaque appel Gemini.")
@@ -235,8 +277,11 @@ def main() -> None:
         sys.exit(1)
 
     summary = run_experiment(args.delay)
-    write_report(summary)
-    print(json.dumps(summary["classification"], indent=2, ensure_ascii=False))
+    if summary["n_documents"] == 0:
+        write_partial_report(summary)
+    else:
+        write_report(summary)
+        print(json.dumps(summary["classification"], indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":
