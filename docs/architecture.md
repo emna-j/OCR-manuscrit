@@ -155,3 +155,13 @@ Documentation interactive via Swagger/OpenAPI fournie par FastAPI (`/docs`).
 |------|----------|----------|
 | Phase 1 | Repository initialisé sur `main` ; structure issue de la section 25 du cahier des charges | Démarrage propre, phases progressives |
 | Phase 1 | Seuils par défaut `OCR < 0.75` / `analyse < 0.70` déclarés provisoires | Doivent être évalués sur le dataset avant toute interprétation |
+| Phase 2 | SQLAlchemy 2.0 (style `Mapped`/`mapped_column`) + Alembic pour les migrations | Schéma versionné et portable ; la source de vérité est la migration, pas `create_all` |
+| Phase 2 | Enums stockés en VARCHAR (`native_enum=False`) | Portabilité PostgreSQL/SQLite pour les tests ; évite les types PG non réversibles |
+| Phase 2 | Tests sur SQLite en mémoire (StaticPool) avec override de `get_db` | Les tests unitaires tournent sans PostgreSQL ; l'intégration réelle est vérifiée via Alembic + healthcheck |
+| Phase 2 | Endpoint `GET /api/health` ajouté | Base des healthchecks Docker (Phase 15) et de l'observabilité (§21) |
+| Phase 3-9 | Pipeline réel : validation fichier → OpenCV → Gemini (extraction puis analyse) → PII → contrôle qualité → revue | Chaque étape est un service isolé, testable avec Gemini mocké (offline) |
+| Phase 3-16 | Stockage derrière une interface commune : `local` (développement) ou MinIO | Les tests tournent sans MinIO ; docker-compose fournit MinIO en prod locale |
+| Phase 8 | PII hybride : regex pour EMAIL/PHONE/DATE/ID + NER Gemini pour PERSON/ADDRESS/ORGANIZATION/LOCATION | Déterministe et testable pour le structuré, plus précis pour les entités ; échec Gemini non bloquant |
+| Phase 11 | Auth : PyJWT + bcrypt, seed d'un admin via `python -m app.seed` | Dépendances maintenues ; pas d'endpoint d'inscription publique (création par script) |
+| Phase 5 | Modèle Gemini `gemini-3.6-flash` (le `2.5-flash` n'est plus proposé aux nouveaux comptes) | Contrainte fournisseur ; modèle configurable via `GEMINI_MODEL` |
+| Phase 14 | Dataset d'évaluation synthétique (police manuscrite + dégradations) ; run réel limité par le quota journalier free tier | Résultats honnêtes : rapport = expériences réellement exécutées, jamais inventées |

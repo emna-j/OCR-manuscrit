@@ -1,0 +1,58 @@
+[
+  {
+    "id": "complaint_retard",
+    "image": "samples/complaint_retard.png",
+    "text": "Bonjour, je vous écris pour signaler que ma commande est arrivée avec trois semaines de retard. Le service client n'a jamais répondu à mes appels, c'est vraiment inacceptable. Je demande un remboursement.",
+    "sentiment": "negative",
+    "category": "complaint"
+  },
+  {
+    "id": "complaint_service",
+    "image": "samples/complaint_service.png",
+    "text": "Je suis très déçu du service reçu hier. L'agent était impoli et n'a pas résolu mon problème. Je ne recommande pas cet établissement.",
+    "sentiment": "negative",
+    "category": "complaint"
+  },
+  {
+    "id": "compliment_service",
+    "image": "samples/compliment_service.png",
+    "text": "Je tenais à vous remercier pour l'excellent accueil reçu lors de ma visite. Le personnel a été adorable et très professionnel, bravo !",
+    "sentiment": "positive",
+    "category": "compliment"
+  },
+  {
+    "id": "remerciement_rapide",
+    "image": "samples/remerciement_rapide.png",
+    "text": "Merci beaucoup pour votre aide, c'était parfait !",
+    "sentiment": "positive",
+    "category": "thanks"
+  },
+  {
+    "id": "note_rendezvous",
+    "image": "samples/note_rendezvous.png",
+    "text": "Rendez-vous chez le médecin jeudi à dix heures. Ne pas oublier la carte d'assurance et l'ordonnance.",
+    "sentiment": "neutral",
+    "category": "note"
+  },
+  {
+    "id": "demande_info",
+    "image": "samples/demande_info.png",
+    "text": "Bonjour, pourriez-vous m'indiquer les horaires d'ouverture de votre agence ainsi que le délai de traitement d'un dossier ? Merci.",
+    "sentiment": "neutral",
+    "category": "request"
+  },
+  {
+    "id": "reclamation_pii",
+    "image": "samples/reclamation_pii.png",
+    "text": "Je soussigné Ahmed Ben Ali, né le 15/03/1990, conteste la facture numéro 12345678. Vous pouvez me joindre au 22 123 456 ou par courrier.",
+    "sentiment": "negative",
+    "category": "complaint"
+  },
+  {
+    "id": "ecriture_difficile",
+    "image": "samples/ecriture_difficile.png",
+    "text": "Le colis est endommagé et le livreur était pressé. Je souhaite un échange rapide de la marchandise.",
+    "sentiment": "negative",
+    "category": "complaint"
+  }
+]

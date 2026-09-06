@@ -59,39 +59,69 @@ Le développement est volontairement progressif (voir `docs/architecture.md`).
 | Phase | Contenu | Statut |
 |-------|---------|--------|
 | 1 | Initialisation du repository et architecture | ✅ |
-| 2 | Backend FastAPI + PostgreSQL | ⏳ |
-| 3 | Upload sécurisé | |
-| 4 | Prétraitement OpenCV | |
-| 5 | Intégration Gemini VLM | |
-| 6 | Extraction structurée du manuscrit | |
-| 7 | Analyse sentiment / émotion / catégorie | |
-| 8 | PII detection et anonymisation | |
-| 9 | Confidence scoring + Human-in-the-loop | |
-| 10 | Frontend | |
-| 11 | Authentication / RBAC | |
-| 12 | Logs / monitoring | |
-| 13 | Tests de sécurité | |
-| 14 | Évaluation IA | |
-| 15 | Dockerisation et documentation | |
+| 2 | Backend FastAPI + PostgreSQL | ✅ |
+| 3 | Upload sécurisé | ✅ |
+| 4 | Prétraitement OpenCV | ✅ |
+| 5 | Intégration Gemini VLM | ✅ |
+| 6 | Extraction structurée du manuscrit | ✅ |
+| 7 | Analyse sentiment / émotion / catégorie | ✅ |
+| 8 | PII detection et anonymisation | ✅ |
+| 9 | Confidence scoring + Human-in-the-loop | ✅ |
+| 10 | Frontend | ✅ |
+| 11 | Authentication / RBAC | ✅ |
+| 12 | Logs / monitoring | ✅ |
+| 13 | Tests de sécurité | ✅ |
+| 14 | Évaluation IA | ⏳ run réel en attente du quota journalier (harnais ✅) |
+| 15 | Dockerisation et documentation | ✅ |
+
+> 75 tests backend (unitaires, intégration, sécurité), build frontend vérifié,
+> intégration Gemini vérifiée sur appels réels. Voir `docs/evaluation.md` pour le
+> statut exact de l'évaluation.
 
 ## Démarrage rapide
 
-⚠️ À compléter au fil des phases (backend, frontend, puis docker-compose).
+### Tout Docker (recommandé)
 
 ```bash
-# 1. Copier la configuration
-cp .env.example .env        # puis renseigner GEMINI_API_KEY, JWT_SECRET_KEY, ...
+cp .env.example .env   # renseigner GEMINI_API_KEY, JWT_SECRET_KEY, ADMIN_*…
+docker compose up --build
+```
 
-# 2. Backend (Phase 2+)
-cd backend
-python -m venv .venv
-source .venv/bin/activate    # Windows: .venv\Scripts\activate
+- Frontend : http://localhost:8080
+- API / Swagger : http://localhost:8000/docs
+- MinIO console : http://localhost:9001
+
+### Développement local
+
+```bash
+# Backend (dans backend/)
+python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+# PostgreSQL puis migration
+cp ../.env.example ../.env && ../.env  # renseigner les secrets
+# démarrer un PostgreSQL local ou : docker compose up -d postgres
+alembic upgrade head
+python -m app.seed                         # crée le compte admin (ADMIN_*)
+uvicorn app.main:app --reload              # API sur http://localhost:8000
 
-# 3. Frontend (Phase 10+)
-cd frontend
+# Frontend (dans frontend/, autre terminal)
 npm install
-npm run dev
+npm run dev                                # http://localhost:5173 (proxy /api)
+```
+
+### Tests
+
+```bash
+cd backend && .venv/Scripts/python -m pytest   # 75 tests (unitaires/intégration/sécurité)
+cd frontend && npm run build                    # vérification TypeScript + build
+```
+
+### Évaluation IA
+
+```bash
+cd backend
+.venv/Scripts/python scripts/generate_eval_dataset.py   # dataset synthétique
+.venv/Scripts/python scripts/run_evaluation.py --delay 12  # expériences Gemini réelles
 ```
 
 ## Principes de sécurité (résumé)
@@ -106,6 +136,7 @@ npm run dev
 ## Documentation
 
 - [Architecture](docs/architecture.md)
-- Sécurité *(Phase 13)*
-- Évaluation IA *(Phase 14)*
-- API / Swagger *(Phase 2+)*
+- [Sécurité](docs/security.md)
+- [Évaluation IA](docs/evaluation.md)
+- [API](docs/api.md)
+- Swagger : http://localhost:8000/docs
