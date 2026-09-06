@@ -31,8 +31,8 @@ export function useUpload() {
 export function useAnalyze() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => documentsApi.analyze(id),
-    onSuccess: (_data, id) => {
+    mutationFn: ({ id, force }: { id: string; force?: boolean }) => documentsApi.analyze(id, force),
+    onSuccess: (_data, { id }) => {
       void queryClient.invalidateQueries({ queryKey: ["document", id] });
       void queryClient.invalidateQueries({ queryKey: ["documents"] });
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });

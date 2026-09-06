@@ -118,9 +118,15 @@ def _client():
 
 
 def _is_daily_quota(exc: Exception) -> bool:
-    """Vrai si le quota journalier (free tier) est épuisé — ne pas réessayer."""
+    """Vrai si le quota JOURNALIER (free tier) est épuisé — ne pas réessayer."""
+    if getattr(exc, "code", None) != 429 and "429" not in str(exc):
+        return False
     message = str(exc)
-    return "429" in message and ("PerDay" in message or "RequestsPerDay" in message)
+    if "PerDay" in message or "RequestsPerDay" in message:
+        return True
+    # Certains formats n'exposent pas le nom de la limite mais donnent un
+    # délai de reprise en heures ("retry in 21h") => quota journalier.
+    return bool(re.search(r"retry in\s+\d+(?:\.\d+)?\s*h", message, flags=re.IGNORECASE))
 
 
 def _call_with_retry(fn: Callable[[], T], max_attempts: int = 3, base_delay: float = 2.0) -> T:
@@ -157,6 +163,114 @@ def _retry_delay(exc: Exception) -> float:
         except ValueError:
             pass
     return 5.0
+
+
+_THINKING_SUPPORTED = True  # bascule à False si l'API rejette ThinkingConfig
+
+
+def _is_model_quota(exc: Exception) -> bool:
+    """Vrai si CE modèle a épuisé son quota (journalier ou persistant après retries).
+
+    Un 429 qui a déjà été retenté sans succès par `_call_with_retry` signifie
+    que ce modèle est saturé : inutile d'insister, passons au modèle suivant.
+    """
+    return getattr(exc, "code", None) == 429 or "429" in str(exc)
+
+
+def _rejects_thinking(exc: Exception) -> bool:
+    """Vrai si le modèle rejette le ThinkingConfig (400 INVALID_ARGUMENT)."""
+    return getattr(exc, "code", None) == 400 and "thinking" in str(exc).lower()
+
+
+def _is_model_unavailable(exc: Exception) -> bool:
+    """Vrai si le modèle n'existe pas / n'est plus disponible pour cette clé (404).
+
+    Les anciens modèles sont retirés pour les nouvelles clés API
+    ("no longer available to new users") : inutile d'abandonner l'analyse,
+    passons simplement au modèle suivant de la chaîne.
+    """
+    return getattr(exc, "code", None) == 404 or "no longer available" in str(exc).lower()
+
+
+def _is_server_error(exc: Exception) -> bool:
+    """Vrai si le modèle renvoie une erreur serveur persistante (500/502/503).
+
+    `_call_with_retry` a déjà retenté 3 fois sans succès : ce modèle est
+    saturé/indisponible côté Google. Comme pour le quota, passons au modèle
+    suivant de la chaîne au lieu de faire échouer toute l'analyse.
+    """
+    return getattr(exc, "code", None) in (500, 502, 503)
+
+
+def _model_chain() -> list[str]:
+    """Modèles à essayer dans l'ordre : principal puis secours (quota par modèle)."""
+    chain = [settings.gemini_model.strip()]
+    for model in settings.gemini_fallback_models.split(","):
+        model = model.strip()
+        if model and model not in chain:
+            chain.append(model)
+    return chain
+
+
+def _generate_content(build_config: Callable[[bool], Any], contents: Any, label: str) -> tuple[Any, str]:
+    """Appel generate_content avec repli automatique de modèle.
+
+    - quota épuisé sur un modèle (429 journalier, ou persistant après retries)
+      → modèle suivant de la chaîne (les limites free tier sont PAR MODÈLE) ;
+    - modèle indisponible pour cette clé (404, "no longer available") →
+      modèle suivant ;
+    - ThinkingConfig rejeté par le modèle → réessaie toute la chaîne sans
+      thinking (une seule fois, l'état est mémorisé pour les appels suivants).
+
+    Retourne (réponse, modèle effectivement utilisé). Si toute la chaîne
+    échoue, c'est l'erreur de QUOTA qui est relancée en priorité (message
+    explicite pour l'utilisateur), sinon la dernière erreur rencontrée.
+    """
+    global _THINKING_SUPPORTED
+    client = _client()
+    last_error: Exception | None = None
+    quota_error: Exception | None = None
+    if _THINKING_SUPPORTED and settings.gemini_thinking_budget >= 0:
+        thinking_options: tuple[bool, ...] = (True, False)
+    else:
+        thinking_options = (False,)
+    for use_thinking in thinking_options:
+        for model in _model_chain():
+            try:
+                started = time.monotonic()
+                response = _call_with_retry(
+                    lambda model=model, use_thinking=use_thinking: client.models.generate_content(
+                        model=model, contents=contents, config=build_config(use_thinking)
+                    )
+                )
+                logger.info(
+                    f"gemini_call_ok label={label} model={model} duration={time.monotonic() - started:.1f}s"
+                )
+                return response, model
+            except Exception as exc:  # noqa: BLE001 — on inspecte le code d'erreur
+                if use_thinking and _rejects_thinking(exc):
+                    logger.warning("gemini_thinking_rejected -> nouvelle tentative sans ThinkingConfig")
+                    _THINKING_SUPPORTED = False
+                    last_error = exc
+                    break  # seconde passe de la chaîne, sans thinking
+                if _is_model_quota(exc):
+                    logger.warning(f"gemini_model_quota label={label} model={model} -> modèle suivant")
+                    quota_error = quota_error or exc
+                    last_error = exc
+                    continue
+                if _is_model_unavailable(exc):
+                    logger.warning(f"gemini_model_unavailable label={label} model={model} -> modèle suivant")
+                    last_error = exc
+                    continue
+                if _is_server_error(exc):
+                    # 503 persistant après retries : modèle saturé côté Google,
+                    # essayons le suivant plutôt que d'échouer (cf. logs 503).
+                    logger.warning(f"gemini_model_overloaded label={label} model={model} -> modèle suivant")
+                    last_error = exc
+                    continue
+                raise
+    assert last_error is not None
+    raise quota_error or last_error
 
 
 def _extract_json(text: str) -> dict[str, Any]:
@@ -221,19 +335,22 @@ def extract_manuscript(images: list[bytes], mime_type: str = "image/png") -> Ext
     """Étape A : transcrit le manuscrit depuis une ou plusieurs images."""
     from google.genai import types
 
-    client = _client()
     parts = [types.Part.from_bytes(data=image, mime_type=mime_type) for image in images]
-    config = types.GenerateContentConfig(
-        system_instruction=EXTRACTION_SYSTEM_PROMPT,
-        response_mime_type="application/json",
-        temperature=0.0,
-        max_output_tokens=8192,
-    )
-    try:
-        response = _call_with_retry(
-            lambda: client.models.generate_content(model=settings.gemini_model, contents=parts, config=config)
+
+    def build_config(use_thinking: bool) -> types.GenerateContentConfig:
+        kwargs: dict[str, Any] = dict(
+            system_instruction=EXTRACTION_SYSTEM_PROMPT,
+            response_mime_type="application/json",
+            temperature=0.0,
+            max_output_tokens=8192,
         )
-    except Exception as exc:  # réseau, quota, clé invalide...
+        if use_thinking:
+            kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=settings.gemini_thinking_budget)
+        return types.GenerateContentConfig(**kwargs)
+
+    try:
+        response, _model = _generate_content(build_config, parts, label="extraction")
+    except Exception as exc:  # réseau, quota (tous modèles), clé invalide...
         logger.warning(f"gemini_extraction_call_failed {type(exc).__name__}")
         raise GeminiError("Gemini extraction call failed") from exc
 
@@ -269,17 +386,19 @@ def analyze_text(text: str) -> AnalysisResult:
     """Étape B : analyse sémantique du texte extrait (déjà anonymisé)."""
     from google.genai import types
 
-    client = _client()
-    config = types.GenerateContentConfig(
-        system_instruction=ANALYSIS_SYSTEM_PROMPT,
-        response_mime_type="application/json",
-        temperature=0.2,
-        max_output_tokens=2048,
-    )
-    try:
-        response = _call_with_retry(
-            lambda: client.models.generate_content(model=settings.gemini_model, contents=[text], config=config)
+    def build_config(use_thinking: bool) -> types.GenerateContentConfig:
+        kwargs: dict[str, Any] = dict(
+            system_instruction=ANALYSIS_SYSTEM_PROMPT,
+            response_mime_type="application/json",
+            temperature=0.2,
+            max_output_tokens=2048,
         )
+        if use_thinking:
+            kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=settings.gemini_thinking_budget)
+        return types.GenerateContentConfig(**kwargs)
+
+    try:
+        response, _model = _generate_content(build_config, [text], label="analysis")
     except Exception as exc:
         logger.warning(f"gemini_analysis_call_failed {type(exc).__name__}")
         raise GeminiError("Gemini analysis call failed") from exc
@@ -313,16 +432,23 @@ def detect_entities(text: str) -> list[dict[str, Any]]:
     """
     from google.genai import types
 
-    client = _client()
     prompt = (
         "Extract personal information entities from the text below. "
         "Types: PERSON, EMAIL, PHONE, ADDRESS, DATE_OF_BIRTH, ID_NUMBER, ORGANIZATION, LOCATION.\n"
         "Return ONLY this JSON: {\"entities\": [{\"type\": \"...\", \"value\": \"...\", \"start\": 0, \"end\": 0, \"confidence\": 0.0}]}\n"
         "If none, return {\"entities\": []}. Do not invent entities.\n\nText:\n" + text
     )
-    config = types.GenerateContentConfig(response_mime_type="application/json", temperature=0.0, max_output_tokens=2048)
+
+    def build_config(use_thinking: bool) -> types.GenerateContentConfig:
+        kwargs: dict[str, Any] = dict(
+            response_mime_type="application/json", temperature=0.0, max_output_tokens=2048
+        )
+        if use_thinking:
+            kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=settings.gemini_thinking_budget)
+        return types.GenerateContentConfig(**kwargs)
+
     try:
-        response = client.models.generate_content(model=settings.gemini_model, contents=[prompt], config=config)
+        response, _model = _generate_content(build_config, prompt, label="pii")
     except Exception as exc:
         logger.warning(f"gemini_pii_call_failed {type(exc).__name__}")
         return []

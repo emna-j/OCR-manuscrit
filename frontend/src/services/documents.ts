@@ -18,7 +18,8 @@ export const documentsApi = {
     form.append("file", file);
     return api.postForm<DocumentItem>("/documents/upload", form);
   },
-  analyze: (id: string) => api.post<Analysis>(`/documents/${id}/analyze`),
+  analyze: (id: string, force?: boolean) =>
+    api.post<Analysis>(`/documents/${id}/analyze${force ? "?force=1" : ""}`),
   analysis: (id: string) => api.get<Analysis>(`/documents/${id}/analysis`),
   review: (id: string, body: ReviewRequest) => api.post(`/documents/${id}/review`, body),
   delete: (id: string) => api.delete(`/documents/${id}`),

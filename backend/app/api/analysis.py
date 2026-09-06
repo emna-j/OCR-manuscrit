@@ -28,6 +28,7 @@ def analyze_document(
     document_id: uuid.UUID,
     user: User = Depends(require_roles(UserRole.ANALYST, UserRole.ADMIN)),
     db: Session = Depends(get_db),
+    force: bool = False,
 ) -> AnalysisRead:
     from app.api.documents import _get_visible_document
 
@@ -36,9 +37,9 @@ def analyze_document(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Document is already being processed")
 
     try:
-        analysis = run_analysis_pipeline(db, document)
-    except PipelineError:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Analysis failed")
+        analysis = run_analysis_pipeline(db, document, force=force)
+    except PipelineError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=exc.detail)
 
     db.refresh(analysis)
     return analysis

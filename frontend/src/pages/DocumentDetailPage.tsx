@@ -135,12 +135,17 @@ export default function DocumentDetailPage() {
         <div className="flex items-center gap-2">
           {canAnalyze && (
             <button
-              onClick={() => analyze.mutate(document.id)}
+              onClick={() => analyze.mutate({ id: document.id, force: Boolean(analysis) })}
               disabled={analyze.isPending || isAnalyzing}
               className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-60"
             >
               {analyze.isPending || isAnalyzing ? "Analyse en cours…" : analysis ? "Ré-analyser" : "Analyser"}
             </button>
+          )}
+          {analyze.isError && (
+            <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700" role="alert">
+              L'analyse a échoué : {analyze.error instanceof Error ? analyze.error.message : "erreur inconnue"}
+            </p>
           )}
           {(user?.role === "ADMIN" || document.owner_id === user?.id) && (
             <button

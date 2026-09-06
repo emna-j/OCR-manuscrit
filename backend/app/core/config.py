@@ -33,6 +33,21 @@ class Settings(BaseSettings):
     # ---- Gemini VLM ----
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.6-flash"
+    # ---- Gemini VLM ----
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.6-flash"
+    # Modèles de secours (séparés par des virgules) : les quotas free tier sont
+    # PAR MODÈLE. Si le quota journalier du modèle principal est épuisé (429),
+    # ou si un modèle n'est plus disponible pour la clé (404), l'appel bascule
+    # automatiquement sur le suivant → l'analyse continue de fonctionner au
+    # lieu de renvoyer une erreur 502 à l'utilisateur.
+    gemini_fallback_models: str = "gemini-3.7-flash,gemini-3.8-flash"
+    # Budget de "réflexion" (thinking) envoyé au modèle :
+    #   0   = thinking désactivé → réponses nettement plus rapides (recommandé) ;
+    #   N>0 = budget de tokens de réflexion ;
+    #   -1  = ne pas envoyer ThinkingConfig (comportement par défaut du modèle,
+    #         plus lent sur les modèles "thinking").
+    gemini_thinking_budget: int = 0
 
     # ---- Stockage des fichiers ----
     storage_backend: str = "local"  # "local" | "minio"
@@ -52,6 +67,13 @@ class Settings(BaseSettings):
     # Valeurs provisoires — à calibrer sur le dataset d'évaluation (Phase 14).
     ocr_confidence_threshold: float = 0.75
     analysis_confidence_threshold: float = 0.70
+
+    # ---- Détection PII ----
+    # Complément NER Gemini pour PERSON/ADDRESS/ORGANIZATION/LOCATION.
+    # Désactivable pour économiser le quota Gemini (1 appel de moins par analyse).
+    # Les types structurés (EMAIL, PHONE, DATE_OF_BIRTH, ID_NUMBER) sont
+    # toujours détectés par regex, indépendamment de ce réglage.
+    pii_use_gemini: bool = True
 
     # ---- Upload ----
     max_upload_size_mb: int = 10
